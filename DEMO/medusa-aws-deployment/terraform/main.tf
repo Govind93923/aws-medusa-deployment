@@ -15,7 +15,7 @@ terraform {
 }
 
 resource "aws_ecr_repository" "medusa" {
-  name = "medusa-ecr-repo"
+  name = "medusa"
 }
 
 resource "aws_iam_role" "ecs_task_execution_role" {
