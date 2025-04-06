@@ -23,3 +23,12 @@ jobs:
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
+
+      - name: Destroy specific resources
+        run: |
+         terraform destroy -target=aws_ecr_repository.medusa \
+         -target=aws_iam_role.ecs_task_execution_role \
+          -target=aws_cloudwatch_log_group.medusa_logs \
+          -target=aws_vpc.main \
+          -auto-approve
+
