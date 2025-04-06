@@ -34,6 +34,10 @@ jobs:
       working-directory: ./DEMO/medusa-aws-deployment/terraform
       run: terraform init
 
+    - name: Terraform Plan
+      working-directory: ./DEMO/medusa-aws-deployment/terraform
+      run: terraform plan -out=tfplan
+      
     - name: Terraform Apply
       working-directory: ./DEMO/medusa-aws-deployment/terraform
       run: terraform apply -auto-approve
