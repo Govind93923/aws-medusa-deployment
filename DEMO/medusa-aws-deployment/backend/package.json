@@ -1,0 +1,13 @@
+{
+    "name": "medusa-backend",
+    "version": "1.0.0",
+    "main": "server.js",
+    "scripts": {
+      "start": "node server.js"
+    },
+    "dependencies": {
+      "@medusajs/medusa": "^1.14.3",
+      "express": "^4.18.2"
+    }
+  }
+  
