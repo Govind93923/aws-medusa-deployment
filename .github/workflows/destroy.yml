@@ -1,52 +1,57 @@
-name: ☠️ AWS Ultimate Cleanup
+name: 🔥 AWS Resource Nuke
 
 on:
-  workflow_dispatch:  # Allows you to trigger manually from GitHub UI
+  workflow_dispatch:
 
 jobs:
-  nuke-resources:
-    name: 🔥 Nuke AWS Resources
+  nuke:
     runs-on: ubuntu-latest
+    name: Force Delete AWS Resources
 
     steps:
-      - name: 🔐 Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1  # Change to your region if needed
+    - name: 🛡️ Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-south-1  # 🔁 CHANGE THIS TO YOUR ACTUAL REGION
 
-      - name: 🧨 Delete AWS Resources
-        run: |
-          echo "🚀 Starting cleanup of Medusa AWS resources..."
+    - name: 🔍 List All Relevant Resources
+      run: |
+        echo "🔎 Checking current resources..."
+        aws ecr describe-repositories --output table || echo "No ECR repos"
+        aws elbv2 describe-target-groups --output table || echo "No Target Groups"
+        aws logs describe-log-groups --output table | grep medusa || true
+        aws iam get-role --role-name ecsTaskExecutionRole || echo "No such IAM Role"
+        aws rds describe-db-subnet-groups --output table | grep medusa || true
 
-          # Delete ECR Repository
-          echo "🧼 Deleting ECR Repository..."
-          aws ecr delete-repository --repository-name medusa-ecr-repo --force || echo "❌ ECR repository not found"
+    - name: 💣 Nuke Resources
+      run: |
+        echo "💣 Starting resource deletion..."
 
-          # Delete ELB Target Group
-          echo "🧼 Deleting ELBv2 Target Group..."
-          TG_ARN=$(aws elbv2 describe-target-groups --names medusa-tg --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null)
-          if [[ "$TG_ARN" != "None" && "$TG_ARN" != "" ]]; then
-            aws elbv2 delete-target-group --target-group-arn "$TG_ARN" || echo "❌ Failed to delete target group"
-          else
-            echo "❌ Target group not found"
-          fi
+        # Delete ECR Repo
+        aws ecr delete-repository --repository-name medusa-ecr-repo --force || echo "❌ ECR not found"
 
-          # Delete CloudWatch Log Group
-          echo "🧼 Deleting CloudWatch Log Group..."
-          aws logs delete-log-group --log-group-name /ecs/medusa || echo "❌ Log group not found"
+        # Delete Target Group
+        TG_ARN=$(aws elbv2 describe-target-groups --names medusa-tg --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null)
+        if [[ "$TG_ARN" != "None" && "$TG_ARN" != "" ]]; then
+          echo "Deleting Target Group $TG_ARN"
+          aws elbv2 delete-target-group --target-group-arn "$TG_ARN"
+        else
+          echo "❌ Target Group not found"
+        fi
 
-          # Delete IAM Role
-          echo "🧼 Deleting IAM Role..."
-          POLICIES=$(aws iam list-attached-role-policies --role-name ecsTaskExecutionRole --query "AttachedPolicies[*].PolicyArn" --output text 2>/dev/null)
-          for POLICY in $POLICIES; do
-            aws iam detach-role-policy --role-name ecsTaskExecutionRole --policy-arn $POLICY || true
-          done
-          aws iam delete-role --role-name ecsTaskExecutionRole || echo "❌ IAM role not found"
+        # Delete CloudWatch Log Group
+        aws logs delete-log-group --log-group-name /ecs/medusa || echo "❌ Log group not found"
 
-          # Delete RDS Subnet Group
-          echo "🧼 Deleting RDS DB Subnet Group..."
-          aws rds delete-db-subnet-group --db-subnet-group-name medusa-db-subnet-group || echo "❌ DB subnet group not found"
+        # Delete IAM Role
+        POLICIES=$(aws iam list-attached-role-policies --role-name ecsTaskExecutionRole --query "AttachedPolicies[*].PolicyArn" --output text 2>/dev/null)
+        for POLICY in $POLICIES; do
+          aws iam detach-role-policy --role-name ecsTaskExecutionRole --policy-arn $POLICY
+        done
+        aws iam delete-role --role-name ecsTaskExecutionRole || echo "❌ IAM Role not found"
 
-          echo "✅ Cleanup completed successfully."
+        # Delete RDS DB Subnet Group
+        aws rds delete-db-subnet-group --db-subnet-group-name medusa-db-subnet-group || echo "❌ DB Subnet Group not found"
+
+        echo "✅ All deletions attempted."
