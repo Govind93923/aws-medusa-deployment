@@ -1,45 +1,52 @@
-name: Deploy Medusa ECS
+name: ☠️ AWS Ultimate Cleanup
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:  # Allows you to trigger manually from GitHub UI
 
 jobs:
-  cleanup:
-    name: 🧹 Clean Existing AWS Resources
+  nuke-resources:
+    name: 🔥 Nuke AWS Resources
     runs-on: ubuntu-latest
+
     steps:
-      - name: 🛡️ Configure AWS credentials
+      - name: 🔐 Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1  # or your region
+          aws-region: us-east-1  # Change to your region if needed
 
-      - name: 🔍 Get Target Group ARN
-        id: get_tg
+      - name: 🧨 Delete AWS Resources
         run: |
-          arn=$(aws elbv2 describe-target-groups --names medusa-tg --query "TargetGroups[0].TargetGroupArn" --output text || echo "")
-          echo "tg_arn=$arn" >> $GITHUB_OUTPUT
+          echo "🚀 Starting cleanup of Medusa AWS resources..."
 
-      - name: 🧹 Delete AWS Resources
-        run: |
-          # Delete ECR Repo
-          aws ecr delete-repository --repository-name medusa-ecr-repo --force || echo "ECR repo not found"
+          # Delete ECR Repository
+          echo "🧼 Deleting ECR Repository..."
+          aws ecr delete-repository --repository-name medusa-ecr-repo --force || echo "❌ ECR repository not found"
 
-          # Delete Target Group
-          if [ "${{ steps.get_tg.outputs.tg_arn }}" != "" ]; then
-            aws elbv2 delete-target-group --target-group-arn "${{ steps.get_tg.outputs.tg_arn }}"
+          # Delete ELB Target Group
+          echo "🧼 Deleting ELBv2 Target Group..."
+          TG_ARN=$(aws elbv2 describe-target-groups --names medusa-tg --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null)
+          if [[ "$TG_ARN" != "None" && "$TG_ARN" != "" ]]; then
+            aws elbv2 delete-target-group --target-group-arn "$TG_ARN" || echo "❌ Failed to delete target group"
           else
-            echo "Target group not found"
+            echo "❌ Target group not found"
           fi
 
-          # Delete IAM Role
-          aws iam delete-role --role-name ecsTaskExecutionRole || echo "IAM role not found"
-
           # Delete CloudWatch Log Group
-          aws logs delete-log-group --log-group-name /ecs/medusa || echo "Log group not found"
+          echo "🧼 Deleting CloudWatch Log Group..."
+          aws logs delete-log-group --log-group-name /ecs/medusa || echo "❌ Log group not found"
+
+          # Delete IAM Role
+          echo "🧼 Deleting IAM Role..."
+          POLICIES=$(aws iam list-attached-role-policies --role-name ecsTaskExecutionRole --query "AttachedPolicies[*].PolicyArn" --output text 2>/dev/null)
+          for POLICY in $POLICIES; do
+            aws iam detach-role-policy --role-name ecsTaskExecutionRole --policy-arn $POLICY || true
+          done
+          aws iam delete-role --role-name ecsTaskExecutionRole || echo "❌ IAM role not found"
 
           # Delete RDS Subnet Group
-          aws rds delete-db-sub
+          echo "🧼 Deleting RDS DB Subnet Group..."
+          aws rds delete-db-subnet-group --db-subnet-group-name medusa-db-subnet-group || echo "❌ DB subnet group not found"
+
+          echo "✅ Cleanup completed successfully."
