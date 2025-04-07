@@ -36,25 +36,4 @@ jobs:
     - name: Terraform Destroy
       run: terraform destroy -auto-approve
 
-    - name: Terraform Plan
-      working-directory: ./DEMO/medusa-aws-deployment/terraform
-      run: terraform plan -out=tfplan -var="db_password=${{ secrets.DB_PASSWORD }}"
-
-      
-    - name: Terraform Apply
-      working-directory: ./DEMO/medusa-aws-deployment/terraform
-      run: terraform apply -auto-approve -var="db_password=${{ secrets.DB_PASSWORD }}"
-
-
-
-    - name: Log in to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v1
-
-    - name: Build, tag, and push Docker image
-      working-directory: ./DEMO/medusa-aws-deployment/backend
-      run: |
-        IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
-        docker build -t $IMAGE_URI .
-        docker push $IMAGE_URI
-
+  
