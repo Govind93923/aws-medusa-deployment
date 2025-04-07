@@ -1,34 +1,45 @@
-name: Terraform Destroy
+name: Deploy Medusa ECS
 
 on:
-  workflow_dispatch:  # Enables manual trigger
+  push:
+    branches:
+      - main
 
 jobs:
-  destroy:
+  cleanup:
+    name: 🧹 Clean Existing AWS Resources
     runs-on: ubuntu-latest
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: "us-east-1"  # Change this if you're in a different region
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+      - name: 🛡️ Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1  # or your region
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Init
-        run: terraform init
-
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve
-
-      - name: Destroy specific resources
+      - name: 🔍 Get Target Group ARN
+        id: get_tg
         run: |
-         terraform destroy -target=aws_ecr_repository.medusa \
-         -target=aws_iam_role.ecs_task_execution_role \
-          -target=aws_cloudwatch_log_group.medusa_logs \
-          -target=aws_vpc.main \
-          -auto-approve
+          arn=$(aws elbv2 describe-target-groups --names medusa-tg --query "TargetGroups[0].TargetGroupArn" --output text || echo "")
+          echo "tg_arn=$arn" >> $GITHUB_OUTPUT
 
+      - name: 🧹 Delete AWS Resources
+        run: |
+          # Delete ECR Repo
+          aws ecr delete-repository --repository-name medusa-ecr-repo --force || echo "ECR repo not found"
+
+          # Delete Target Group
+          if [ "${{ steps.get_tg.outputs.tg_arn }}" != "" ]; then
+            aws elbv2 delete-target-group --target-group-arn "${{ steps.get_tg.outputs.tg_arn }}"
+          else
+            echo "Target group not found"
+          fi
+
+          # Delete IAM Role
+          aws iam delete-role --role-name ecsTaskExecutionRole || echo "IAM role not found"
+
+          # Delete CloudWatch Log Group
+          aws logs delete-log-group --log-group-name /ecs/medusa || echo "Log group not found"
+
+          # Delete RDS Subnet Group
+          aws rds delete-db-sub
