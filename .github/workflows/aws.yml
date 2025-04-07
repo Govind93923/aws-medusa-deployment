@@ -33,6 +33,9 @@ jobs:
       working-directory: ./DEMO/medusa-aws-deployment/terraform
       run: terraform init
 
+    - name: Terraform Destroy
+      run: terraform destroy -auto-approve
+
     - name: Terraform Plan
       working-directory: ./DEMO/medusa-aws-deployment/terraform
       run: terraform plan -out=tfplan -var="db_password=${{ secrets.DB_PASSWORD }}"
