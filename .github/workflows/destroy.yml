@@ -31,6 +31,9 @@ jobs:
           name: terraform-state
           path: ./DEMO/medusa-aws-deployment/terraform/
 
+      - name: Remove any leftover plan files (just in case)
+        run: rm -f ./DEMO/medusa-aws-deployment/terraform/tfplan || true
+
       - name: Terraform Init
         working-directory: ./DEMO/medusa-aws-deployment/terraform
         run: terraform init
