@@ -1,57 +1,58 @@
-name: 🔥 AWS Resource Nuke
+name: Ultimate AWS Cleanup for Medusa
 
 on:
   workflow_dispatch:
 
 jobs:
-  nuke:
+  destroy:
     runs-on: ubuntu-latest
-    name: Force Delete AWS Resources
 
     steps:
-    - name: 🛡️ Configure AWS Credentials
+    - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ap-south-1  # 🔁 CHANGE THIS TO YOUR ACTUAL REGION
+        aws-region: ap-south-1
 
-    - name: 🔍 List All Relevant Resources
+    - name: Brute Force Cleanup Medusa Resources
       run: |
-        echo "🔎 Checking current resources..."
-        aws ecr describe-repositories --output table || echo "No ECR repos"
-        aws elbv2 describe-target-groups --output table || echo "No Target Groups"
-        aws logs describe-log-groups --output table | grep medusa || true
-        aws iam get-role --role-name ecsTaskExecutionRole || echo "No such IAM Role"
-        aws rds describe-db-subnet-groups --output table | grep medusa || true
+        echo "🧹 Cleaning up Medusa resources..."
 
-    - name: 💣 Nuke Resources
-      run: |
-        echo "💣 Starting resource deletion..."
+        # Delete Load Balancer
+        LB_ARN=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?LoadBalancerName=='medusa-lb'].LoadBalancerArn" --output text || true)
+        if [[ "$LB_ARN" != "None" && "$LB_ARN" != "" ]]; then
+          TG_ARN=$(aws elbv2 describe-target-groups --query "TargetGroups[?LoadBalancerArns[0]=='$LB_ARN'].TargetGroupArn" --output text || true)
+          if [[ "$TG_ARN" != "" ]]; then
+            aws elbv2 delete-target-group --target-group-arn "$TG_ARN" || true
+          fi
+          aws elbv2 delete-load-balancer --load-balancer-arn "$LB_ARN" || true
+        fi
 
-        # Delete ECR Repo
-        aws ecr delete-repository --repository-name medusa-ecr-repo --force || echo "❌ ECR not found"
-
-        # Delete Target Group
-        TG_ARN=$(aws elbv2 describe-target-groups --names medusa-tg --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null)
-        if [[ "$TG_ARN" != "None" && "$TG_ARN" != "" ]]; then
-          echo "Deleting Target Group $TG_ARN"
-          aws elbv2 delete-target-group --target-group-arn "$TG_ARN"
-        else
-          echo "❌ Target Group not found"
+        # Delete IAM Role
+        if aws iam get-role --role-name ecsTaskExecutionRole > /dev/null 2>&1; then
+          echo "Deleting IAM Role ecsTaskExecutionRole"
+          ATTACHED_POLICIES=$(aws iam list-attached-role-policies --role-name ecsTaskExecutionRole --query 'AttachedPolicies[*].PolicyArn' --output text)
+          for POLICY in $ATTACHED_POLICIES; do
+            aws iam detach-role-policy --role-name ecsTaskExecutionRole --policy-arn $POLICY || true
+          done
+          aws iam delete-role --role-name ecsTaskExecutionRole || true
         fi
 
         # Delete CloudWatch Log Group
-        aws logs delete-log-group --log-group-name /ecs/medusa || echo "❌ Log group not found"
+        aws logs delete-log-group --log-group-name /ecs/medusa || true
 
-        # Delete IAM Role
-        POLICIES=$(aws iam list-attached-role-policies --role-name ecsTaskExecutionRole --query "AttachedPolicies[*].PolicyArn" --output text 2>/dev/null)
-        for POLICY in $POLICIES; do
-          aws iam detach-role-policy --role-name ecsTaskExecutionRole --policy-arn $POLICY
+        # Delete DB Subnet Group
+        aws rds delete-db-subnet-group --db-subnet-group-name medusa-db-subnet-group || true
+
+        # Delete Internet Gateway(s)
+        IGWS=$(aws ec2 describe-internet-gateways --query 'InternetGateways[].InternetGatewayId' --output text)
+        for IGW in $IGWS; do
+          ATTACHED_VPC=$(aws ec2 describe-internet-gateways --internet-gateway-ids $IGW --query 'InternetGateways[0].Attachments[0].VpcId' --output text)
+          if [[ "$ATTACHED_VPC" != "None" ]]; then
+            aws ec2 detach-internet-gateway --internet-gateway-id $IGW --vpc-id $ATTACHED_VPC || true
+          fi
+          aws ec2 delete-internet-gateway --internet-gateway-id $IGW || true
         done
-        aws iam delete-role --role-name ecsTaskExecutionRole || echo "❌ IAM Role not found"
 
-        # Delete RDS DB Subnet Group
-        aws rds delete-db-subnet-group --db-subnet-group-name medusa-db-subnet-group || echo "❌ DB Subnet Group not found"
-
-        echo "✅ All deletions attempted."
+        echo "✅ Cleanup completed"
